@@ -2,7 +2,10 @@ module github.com/jameynakama/APPNAME
 
 go 1.26.1
 
-require github.com/jackc/pgx/v5 v5.9.2
+require (
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/jackc/pgx/v5 v5.9.2
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
