@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS things;
+DROP FUNCTION IF EXISTS set_update_time;
