@@ -73,12 +73,18 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	testPool.Close()
+	// Postgres refuses to drop a DB with active connections -- force evictions first
+	pgDB.Exec(ctx, `
+		SELECT pg_terminate_backend(pid)
+		FROM pg_stat_activity
+		WHERE datname = $1 AND pid <> pg_backend_pid()
+	`, testDBName)
 	_, err = pgDB.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
 	if err != nil {
 		log.Println("Could not drop test database")
 	}
 	pgDB.Close()
-	testPool.Close()
 
 	os.Exit(code)
 }
@@ -131,6 +137,9 @@ func TestGetDBName(t *testing.T) {
 
 func TestListThings(t *testing.T) {
 	truncate(t)
+
+	expected := http.StatusOK
+
 	srv := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/things", nil)
 	w := httptest.NewRecorder()
@@ -138,12 +147,77 @@ func TestListThings(t *testing.T) {
 
 	status := w.Result().StatusCode
 
-	if status != http.StatusOK {
-		t.Errorf("expected %d; got %d", http.StatusOK, status)
+	if status != expected {
+		t.Errorf("expected %d; got %d", expected, status)
 	}
 }
 
-func TestGetThing(t *testing.T)    {}
-func TestCreateThing(t *testing.T) {}
-func TestUpdateThing(t *testing.T) {}
-func TestDeleteThing(t *testing.T) {}
+func TestGetThing404(t *testing.T) {
+	truncate(t)
+
+	expected := http.StatusNotFound
+
+	srv := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/things/666", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	status := w.Result().StatusCode
+
+	if status != expected {
+		t.Errorf("expected %d; got %d", expected, status)
+	}
+}
+
+func TestCreateThing(t *testing.T) {
+	truncate(t)
+
+	expected := http.StatusCreated
+
+	srv := newTestServer(t)
+	payload := strings.NewReader(`{"name": "apple", "description": "juice"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/things", payload)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	status := w.Result().StatusCode
+
+	if status != expected {
+		t.Errorf("expected %d; got %d", expected, status)
+	}
+}
+
+func TestUpdateThing404(t *testing.T) {
+	truncate(t)
+
+	expected := http.StatusNotFound
+
+	srv := newTestServer(t)
+	payload := strings.NewReader(`{"name": "apple", "description": "juice"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/things/666", payload)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	status := w.Result().StatusCode
+
+	if status != expected {
+		t.Errorf("expected %d; got %d", expected, status)
+	}
+}
+
+func TestDeleteThing(t *testing.T) {
+	truncate(t)
+
+	expected := http.StatusNoContent
+
+	srv := newTestServer(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/things/666", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	status := w.Result().StatusCode
+
+	if status != expected {
+		t.Errorf("expected %d; got %d", expected, status)
+	}
+}
