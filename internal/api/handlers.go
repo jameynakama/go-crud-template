@@ -42,6 +42,9 @@ func (h *Handler) listThings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if res == nil {
+		res = []store.Thing{}
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
