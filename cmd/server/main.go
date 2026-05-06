@@ -58,7 +58,7 @@ func main() {
 	routerCfg := api.RouterConfig{Queries: store.New(db)}
 	r := api.NewRouter(routerCfg)
 
-	log.Printf("starting server at localhost:%s", cfg.port)
+	log.Printf("starting server at http://localhost:%s", cfg.port)
 	if err := http.ListenAndServe(":"+cfg.port, r); err != nil {
 		log.Fatalf("failed to start server: %v", err)
 	}
