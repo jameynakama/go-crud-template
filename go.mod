@@ -1,4 +1,4 @@
-module github.com/jameynakama/APPNAME
+module github.com/GHUSER/APPNAME
 
 go 1.26.1
 

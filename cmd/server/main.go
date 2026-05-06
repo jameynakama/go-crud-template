@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jameynakama/APPNAME/internal/api"
-	"github.com/jameynakama/APPNAME/internal/store"
+	"github.com/GHUSER/APPNAME/internal/api"
+	"github.com/GHUSER/APPNAME/internal/store"
 )
 
 type config struct {

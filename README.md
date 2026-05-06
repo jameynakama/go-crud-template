@@ -1,6 +1,11 @@
 # go-crud-template
 
-A minimal Go backend skeleton with full CRUD, Postgres, and integration tests. Clone it, find-replace `APPNAME`, and start building.
+A minimal Go backend skeleton with full CRUD, Postgres, and integration tests.
+Clone it, find-replace `GHUSER` and `APPNAME`, and start building.
+
+I use `just` for running commands. If you don't want to use it, just take a look
+at the Justfile for the actual commands. You'll need to load your .env for most
+commands.
 
 ## Stack
 
@@ -13,33 +18,37 @@ A minimal Go backend skeleton with full CRUD, Postgres, and integration tests. C
 
 ## Prerequisites
 
-```bash
-brew install go just sqlc golang-migrate
-```
-
-Docker Desktop (or equivalent) for Postgres.
+- go
+- (optional) just
+- sqlc
+- golang-migrate
+- Docker Desktop (or equivalent) for Postgres
 
 ## First Run
 
 ```bash
-git clone https://github.com/jameynakama/go-crud-template
-cd go-crud-template
+git clone https://github.com/jameynakama/go-crud-template my-actual-app-name
+cd my-actual-app-name
 
-# 1. Replace all placeholder names throughout (handles both APPNAME and appname)
-grep -rli "appname" . --include="*.go" --include="*.mod" --include="*.yml" --include="*.yaml" --include="*.example" --include="*.sql" | \
-  xargs sed -i '' 's/APPNAME/yourappname/g; s/appname/yourappname/g'
+# 1. Replace all placeholder names throughout with your app's actual name and GitHub username
+
+grep -rli "appname\|GHUSER" . --include="*.go" --include="*.mod" --include="*.yml" --include="*.yaml" --include="*.example" --include="*.sql" | \
+  xargs sed -i '' 's/GHUSER/yourgithubusername/g; s/APPNAME/yourappname/g; s/appname/yourappname/g'
 
 # 2. Set up environment
-cp .env.example .env
-# Edit .env if needed (DATABASE_URL, TEST_DATABASE_URL, PORT)
+
+cp .env.example .env # Edit .env for your needs
 
 # 3. Start Postgres
+
 docker compose up -d
 
 # 4. Run migrations
+
 just migrate-up
 
 # 5. Start the server
+
 just run
 ```
 
@@ -47,17 +56,19 @@ Server starts on `http://localhost:8080` (or whatever `PORT` is set to).
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `just` | Run tests (default) |
-| `just run` | Start dev server |
-| `just build` | Build binary to `bin/APPNAME` |
-| `just migrate-up` | Apply pending migrations |
-| `just migrate-down` | Roll back one migration |
-| `just generate` | Regenerate sqlc types after SQL changes |
-| `just migration name=X` | Create a new migration pair |
+| Command                 | Description                             |
+| ----------------------- | --------------------------------------- |
+| `just`                  | Run tests (default)                     |
+| `just run`              | Start dev server                        |
+| `just build`            | Build binary to `bin/APPNAME`           |
+| `just migrate-up`       | Apply pending migrations                |
+| `just migrate-down`     | Roll back one migration                 |
+| `just generate`         | Regenerate sqlc types after SQL changes |
+| `just migration name=X` | Create a new migration pair             |
 
 ## API
+
+Routes below reflect the starter `users` resource -- replace with your own.
 
 ```
 GET    /health
@@ -81,7 +92,10 @@ DELETE /api/v1/users/{id}
 
 ## Tests
 
-Integration tests run against a real ephemeral database created and destroyed each run. Set `TEST_DATABASE_URL` in `.env` pointing at the same Postgres instance as `DATABASE_URL` -- the test suite handles creating and dropping the `appname_test` database automatically.
+Integration tests run against a real ephemeral database created and destroyed
+each run. Set `TEST_DATABASE_URL` in `.env` pointing at the same Postgres
+instance as `DATABASE_URL` -- the test suite handles creating and dropping the
+test database automatically.
 
 ```bash
 just test

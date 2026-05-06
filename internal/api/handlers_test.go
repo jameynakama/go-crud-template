@@ -17,8 +17,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jameynakama/APPNAME/internal/api"
-	"github.com/jameynakama/APPNAME/internal/store"
+	"github.com/GHUSER/APPNAME/internal/api"
+	"github.com/GHUSER/APPNAME/internal/store"
 )
 
 var testPool *pgxpool.Pool
