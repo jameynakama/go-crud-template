@@ -6,8 +6,8 @@ alias md := migrate-down
 default: test
 
 # Run all tests
-test:
-    go test ./...
+test args="":
+    go test {{ args }} ./...
 
 # Start the dev server
 run:
