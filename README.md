@@ -3,6 +3,10 @@
 A minimal Go backend skeleton with full CRUD, Postgres, and integration tests.
 Clone it, find-replace `GHUSER` and `APPNAME`, and start building.
 
+This is a template project, so you can either use GitHub's UI to start your own
+project based on this, or simply clone it and blast away `.git` (detailed
+below).
+
 I use `just` for running commands. If you don't want to use it, just take a look
 at the Justfile for the actual commands. You'll need to load your .env for most
 commands.
@@ -29,6 +33,12 @@ commands.
 ```bash
 git clone https://github.com/jameynakama/go-crud-template my-actual-app-name
 cd my-actual-app-name
+
+# Start a fresh repo for your project (if you didn't use the template option in GH)
+rm -rf .git
+git init .
+git add .
+git commit -m "Initial commit"
 
 # 1. Replace all placeholder names throughout with your app's actual name and GitHub username
 
