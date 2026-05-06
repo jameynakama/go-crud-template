@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -100,7 +102,7 @@ func truncate(t *testing.T) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), "TRUNCATE things RESTART IDENTITY CASCADE")
 	if err != nil {
-		log.Fatalf("failed to truncate: %v", err)
+		t.Fatalf("failed to truncate: %v", err)
 	}
 }
 
@@ -113,6 +115,18 @@ func swapDBName(oldDB, newDB string) string {
 	u, _ := url.Parse(oldDB)
 	u.Path = "/" + newDB
 	return u.String()
+}
+
+func createThing(t *testing.T, name, description string) store.Thing {
+	t.Helper()
+	thing, err := store.New(testPool).CreateThing(context.Background(), store.CreateThingParams{
+		Name:        name,
+		Description: description,
+	})
+	if err != nil {
+		t.Fatalf("createThing: %v", err)
+	}
+	return thing
 }
 
 func TestSwapDBName(t *testing.T) {
@@ -140,6 +154,10 @@ func TestListThings(t *testing.T) {
 
 	expected := http.StatusOK
 
+	for i := range 3 {
+		createThing(t, strconv.FormatInt(int64(i), 10), "desc")
+	}
+
 	srv := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/things", nil)
 	w := httptest.NewRecorder()
@@ -149,6 +167,22 @@ func TestListThings(t *testing.T) {
 
 	if status != expected {
 		t.Errorf("expected %d; got %d", expected, status)
+	}
+
+	var things []store.Thing
+	err := json.NewDecoder(w.Body).Decode(&things)
+	if err != nil {
+		t.Errorf("error decoding response body: %v", err)
+	}
+
+	if len(things) != 3 {
+		t.Errorf("expected %d things; got %d", 3, len(things))
+	}
+
+	for i, thing := range things {
+		if thing.Name != strconv.FormatInt(int64(2-i), 10) {
+			t.Errorf("expected name '%d'; got '%s'", i, thing.Name)
+		}
 	}
 }
 
@@ -169,6 +203,35 @@ func TestGetThing404(t *testing.T) {
 	}
 }
 
+func TestGetThing(t *testing.T) {
+	truncate(t)
+
+	thing := createThing(t, "meow", "woof")
+
+	srv := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	status := w.Result().StatusCode
+
+	if status != http.StatusOK {
+		t.Errorf("expected %d; got %d", http.StatusOK, status)
+	}
+
+	err := json.NewDecoder(w.Body).Decode(&thing)
+	if err != nil {
+		t.Errorf("error decoding response body: %v", err)
+	}
+
+	if thing.Name != "meow" {
+		t.Errorf("expected name '%s'; got '%s'", "meow", thing.Name)
+	}
+	if thing.Description != "woof" {
+		t.Errorf("expected desc '%s'; got '%s'", "woof", thing.Description)
+	}
+}
+
 func TestCreateThing(t *testing.T) {
 	truncate(t)
 
@@ -184,6 +247,14 @@ func TestCreateThing(t *testing.T) {
 
 	if status != expected {
 		t.Errorf("expected %d; got %d", expected, status)
+	}
+
+	var thing store.Thing
+	err := json.NewDecoder(w.Body).Decode(&thing)
+
+	_, err = store.New(testPool).GetThing(context.Background(), thing.ID)
+	if err != nil {
+		t.Errorf("error querying db: %v", err)
 	}
 }
 
@@ -205,13 +276,56 @@ func TestUpdateThing404(t *testing.T) {
 	}
 }
 
+func TestUpdateThing(t *testing.T) {
+	truncate(t)
+
+	thing, err := store.New(testPool).CreateThing(context.Background(), store.CreateThingParams{
+		Name:        "sugar",
+		Description: "creek",
+	})
+	if err != nil {
+		t.Fatalf("error creating thing: %v", err)
+	}
+
+	srv := newTestServer(t)
+	payload := strings.NewReader(`{"name": "apple", "description": "juice"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), payload)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	status := w.Result().StatusCode
+
+	if status != http.StatusOK {
+		t.Errorf("expected %d; got %d", http.StatusOK, status)
+	}
+
+	err = json.NewDecoder(w.Body).Decode(&thing)
+	if err != nil {
+		t.Errorf("error decoding response body: %v", err)
+	}
+
+	if thing.Name != "apple" {
+		t.Errorf("expected name '%s'; got '%s'", "apple", thing.Name)
+	}
+	if thing.Description != "juice" {
+		t.Errorf("expected desc '%s'; got '%s'", "juice", thing.Description)
+	}
+}
+
 func TestDeleteThing(t *testing.T) {
 	truncate(t)
 
 	expected := http.StatusNoContent
 
+	thing, err := store.New(testPool).CreateThing(context.Background(), store.CreateThingParams{
+		Name: "bye",
+	})
+	if err != nil {
+		t.Fatalf("error creating thing: %v", err)
+	}
+
 	srv := newTestServer(t)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/things/666", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -219,5 +333,13 @@ func TestDeleteThing(t *testing.T) {
 
 	if status != expected {
 		t.Errorf("expected %d; got %d", expected, status)
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), nil)
+	srv.ServeHTTP(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404; got %d", w.Result().StatusCode)
 	}
 }
