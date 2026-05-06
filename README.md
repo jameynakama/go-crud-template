@@ -42,7 +42,7 @@ git commit -m "Initial commit"
 
 # 1. Replace all placeholder names throughout with your app's actual name and GitHub username
 
-grep -rli "appname\|GHUSER" . --include="*.go" --include="*.mod" --include="*.yml" --include="*.yaml" --include="*.example" --include="*.sql" | \
+grep -rli "appname\|GHUSER" . --include="*.go" --include="*.mod" --include="*.yml" --include="*.yaml" --include="*.example" --include="*.sql" --include="Justfile" | \
   xargs sed -i '' 's/GHUSER/yourgithubusername/g; s/APPNAME/yourappname/g; s/appname/yourappname/g'
 
 # 2. Set up environment
