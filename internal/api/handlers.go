@@ -14,12 +14,12 @@ import (
 
 const defaultLimit = 20
 
-type thingRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+type userRequest struct {
+	Username string `json:"username"`
+	IsAdmin  bool   `json:"is_admin"`
 }
 
-func (h *Handler) listThings(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	limit := int32(defaultLimit)
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil {
@@ -34,107 +34,108 @@ func (h *Handler) listThings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	params := store.ListThingsParams{Limit: limit, Offset: offset}
-	res, err := h.queries.ListThings(r.Context(), params)
+	rows, err := h.queries.ListUsers(r.Context(), store.ListUsersParams{Limit: limit, Offset: offset})
 	if err != nil {
-		log.Printf("listThings: %v", err)
+		log.Printf("listUsers: %v", err)
 		writeError(w, http.StatusInternalServerError, "server error")
 		return
 	}
 
-	if res == nil {
-		res = []store.Thing{}
+	if rows == nil {
+		rows = []store.User{}
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, rows)
 }
 
-func (h *Handler) getThing(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "id must be a number")
 		return
 	}
 
-	res, err := h.queries.GetThing(r.Context(), id)
+	row, err := h.queries.GetUser(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
-		log.Printf("getThing: %v", err)
+		log.Printf("getUser: %v", err)
 		writeError(w, http.StatusInternalServerError, "server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, row)
 }
 
-func (h *Handler) createThing(w http.ResponseWriter, r *http.Request) {
-	var req thingRequest
+func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
+	var req userRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name must be provided")
+	if req.Username == "" {
+		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}
 
-	params := store.CreateThingParams{Name: req.Name, Description: req.Description}
-	t, err := h.queries.CreateThing(r.Context(), params)
+	row, err := h.queries.CreateUser(r.Context(), store.CreateUserParams{
+		Username: req.Username,
+		IsAdmin:  req.IsAdmin,
+	})
 	if err != nil {
-		log.Printf("createThing: %v", err)
+		log.Printf("createUser: %v", err)
 		writeError(w, http.StatusInternalServerError, "server error")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, t)
+	writeJSON(w, http.StatusCreated, row)
 }
 
-func (h *Handler) updateThing(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "id must be a number")
 		return
 	}
 
-	var req thingRequest
+	var req userRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name must be provided")
+	if req.Username == "" {
+		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}
 
-	params := store.UpdateThingParams{ID: id, Name: req.Name, Description: req.Description}
-	t, err := h.queries.UpdateThing(r.Context(), params)
+	row, err := h.queries.UpdateUser(r.Context(), store.UpdateUserParams{
+		ID:       id,
+		Username: req.Username,
+		IsAdmin:  req.IsAdmin,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
-		log.Printf("updateThing: %v", err)
+		log.Printf("updateUser: %v", err)
 		writeError(w, http.StatusInternalServerError, "server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, row)
 }
 
-func (h *Handler) deleteThing(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "id must be a number")
 		return
 	}
 
-	err = h.queries.DeleteThing(r.Context(), id)
-	if err != nil {
-		log.Printf("deleteThing: %v", err)
+	if err := h.queries.DeleteUser(r.Context(), id); err != nil {
+		log.Printf("deleteUser: %v", err)
 		writeError(w, http.StatusInternalServerError, "server error")
 		return
 	}

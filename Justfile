@@ -26,5 +26,6 @@ migrate-down:
     migrate -path migrations -database "$DATABASE_URL" down 1
 
 # Regenerate sqlc types after query changes
-gen:
+generate:
+    rm -f internal/store/*.sql.go
     sqlc generate

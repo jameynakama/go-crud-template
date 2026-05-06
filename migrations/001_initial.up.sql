@@ -6,15 +6,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TABLE things (
+CREATE TABLE users (
     id          BIGSERIAL   PRIMARY KEY,
-    name        TEXT        NOT NULL,
-    description TEXT        NOT NULL DEFAULT '',
+    username    TEXT        NOT NULL UNIQUE,
+    is_admin    BOOLEAN     NOT NULL DEFAULT FALSE,
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TRIGGER set_update_time_before_update
-    BEFORE UPDATE ON things
+    BEFORE UPDATE ON users
     FOR EACH ROW
     EXECUTE FUNCTION set_update_time();

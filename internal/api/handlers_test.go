@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -37,12 +36,9 @@ func getDBConn(ctx context.Context, dbURL string) *pgxpool.Pool {
 	if err != nil {
 		log.Fatalf("error establishing test database connection: %v", err)
 	}
-
 	if err := db.Ping(ctx); err != nil {
 		log.Fatalf("cannot ping test database %s: %v", dbURL, err)
 	}
-	log.Println("test database connected")
-
 	return db
 }
 
@@ -53,22 +49,18 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	pgDB := getDBConn(ctx, swapDBName(testDBURL, "postgres"))
-	_, err := pgDB.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
-	if err != nil {
-		log.Println("Could not drop test database during setup")
-	}
-	_, err = pgDB.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s", testDBName))
-	if err != nil {
-		log.Fatal("Could not create test database")
+	pgDB.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
+	if _, err := pgDB.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s", testDBName)); err != nil {
+		log.Fatal("could not create test database")
 	}
 
 	migrateURL := strings.Replace(testDBURL, "postgres://", "pgx5://", 1)
 	mig, err := migrate.New("file://../../migrations", migrateURL)
 	if err != nil {
-		log.Fatalf("could not create migrate instance for %s: %v", migrateURL, err)
+		log.Fatalf("could not create migrate instance: %v", err)
 	}
 	if err := mig.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		log.Fatalf("could not migrate test db %s: %v", migrateURL, err)
+		log.Fatalf("could not migrate test db: %v", err)
 	}
 
 	testPool = getDBConn(ctx, testDBURL)
@@ -82,28 +74,35 @@ func TestMain(m *testing.M) {
 		FROM pg_stat_activity
 		WHERE datname = $1 AND pid <> pg_backend_pid()
 	`, testDBName)
-	_, err = pgDB.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
-	if err != nil {
-		log.Println("Could not drop test database")
-	}
+	pgDB.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
 	pgDB.Close()
 
 	os.Exit(code)
 }
 
-// newTestServer returns a fresh router wired to the test DB
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	return api.NewRouter(api.RouterConfig{Queries: store.New(testPool)})
 }
 
-// truncate wipes the things table between tests
 func truncate(t *testing.T) {
 	t.Helper()
-	_, err := testPool.Exec(context.Background(), "TRUNCATE things RESTART IDENTITY CASCADE")
+	_, err := testPool.Exec(context.Background(), "TRUNCATE users RESTART IDENTITY CASCADE")
 	if err != nil {
-		t.Fatalf("failed to truncate: %v", err)
+		t.Fatalf("truncate: %v", err)
 	}
+}
+
+func createTestUser(t *testing.T, username string, isAdmin bool) store.User {
+	t.Helper()
+	user, err := store.New(testPool).CreateUser(context.Background(), store.CreateUserParams{
+		Username: username,
+		IsAdmin:  isAdmin,
+	})
+	if err != nil {
+		t.Fatalf("createTestUser: %v", err)
+	}
+	return user
 }
 
 func getDBName(dbURL string) string {
@@ -117,229 +116,157 @@ func swapDBName(oldDB, newDB string) string {
 	return u.String()
 }
 
-func createThing(t *testing.T, name, description string) store.Thing {
-	t.Helper()
-	thing, err := store.New(testPool).CreateThing(context.Background(), store.CreateThingParams{
-		Name:        name,
-		Description: description,
-	})
-	if err != nil {
-		t.Fatalf("createThing: %v", err)
-	}
-	return thing
-}
-
 func TestSwapDBName(t *testing.T) {
 	expected := "pg://hello:moto@some.place/woof?one=1&two=2"
-
-	url := "pg://hello:moto@some.place/meow?one=1&two=2"
-	replacement := "woof"
-
-	if r := swapDBName(url, replacement); r != expected {
+	if r := swapDBName("pg://hello:moto@some.place/meow?one=1&two=2", "woof"); r != expected {
 		t.Errorf("wanted %s but got %s", expected, r)
 	}
 }
 
 func TestGetDBName(t *testing.T) {
-	expected := "woof"
-	url := "pg://hello:moto@some.place/woof?one=1&two=2"
-
-	if r := getDBName(url); r != expected {
-		t.Errorf("wanted %s but got %s", expected, r)
+	if r := getDBName("pg://hello:moto@some.place/woof?one=1&two=2"); r != "woof" {
+		t.Errorf("wanted woof but got %s", r)
 	}
 }
 
-func TestListThings(t *testing.T) {
+func TestListUsers(t *testing.T) {
 	truncate(t)
-
-	expected := http.StatusOK
 
 	for i := range 3 {
-		createThing(t, strconv.FormatInt(int64(i), 10), "desc")
+		createTestUser(t, fmt.Sprintf("user%d", i), false)
 	}
 
 	srv := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/things", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	status := w.Result().StatusCode
-
-	if status != expected {
-		t.Errorf("expected %d; got %d", expected, status)
+	if w.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected 200; got %d", w.Result().StatusCode)
 	}
 
-	var things []store.Thing
-	err := json.NewDecoder(w.Body).Decode(&things)
-	if err != nil {
-		t.Errorf("error decoding response body: %v", err)
+	var users []store.User
+	if err := json.NewDecoder(w.Body).Decode(&users); err != nil {
+		t.Fatalf("error decoding response: %v", err)
 	}
-
-	if len(things) != 3 {
-		t.Errorf("expected %d things; got %d", 3, len(things))
-	}
-
-	for i, thing := range things {
-		if thing.Name != strconv.FormatInt(int64(2-i), 10) {
-			t.Errorf("expected name '%d'; got '%s'", i, thing.Name)
-		}
+	if len(users) != 3 {
+		t.Errorf("expected 3 users; got %d", len(users))
 	}
 }
 
-func TestGetThing404(t *testing.T) {
+func TestGetUser404(t *testing.T) {
 	truncate(t)
-
-	expected := http.StatusNotFound
-
 	srv := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/things/666", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/666", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	status := w.Result().StatusCode
-
-	if status != expected {
-		t.Errorf("expected %d; got %d", expected, status)
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404; got %d", w.Result().StatusCode)
 	}
 }
 
-func TestGetThing(t *testing.T) {
+func TestGetUser(t *testing.T) {
 	truncate(t)
-
-	thing := createThing(t, "meow", "woof")
+	user := createTestUser(t, "jamey", false)
 
 	srv := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/users/%d", user.ID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	status := w.Result().StatusCode
-
-	if status != http.StatusOK {
-		t.Errorf("expected %d; got %d", http.StatusOK, status)
+	if w.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200; got %d", w.Result().StatusCode)
 	}
 
-	err := json.NewDecoder(w.Body).Decode(&thing)
-	if err != nil {
-		t.Errorf("error decoding response body: %v", err)
+	if err := json.NewDecoder(w.Body).Decode(&user); err != nil {
+		t.Fatalf("error decoding response: %v", err)
 	}
-
-	if thing.Name != "meow" {
-		t.Errorf("expected name '%s'; got '%s'", "meow", thing.Name)
-	}
-	if thing.Description != "woof" {
-		t.Errorf("expected desc '%s'; got '%s'", "woof", thing.Description)
+	if user.Username != "jamey" {
+		t.Errorf("expected username 'jamey'; got '%s'", user.Username)
 	}
 }
 
-func TestCreateThing(t *testing.T) {
+func TestCreateUser(t *testing.T) {
 	truncate(t)
-
-	expected := http.StatusCreated
-
 	srv := newTestServer(t)
-	payload := strings.NewReader(`{"name": "apple", "description": "juice"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/things", payload)
+
+	body := strings.NewReader(`{"username":"newuser","is_admin":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", body)
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	status := w.Result().StatusCode
-
-	if status != expected {
-		t.Errorf("expected %d; got %d", expected, status)
+	if w.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201; got %d: %s", w.Result().StatusCode, w.Body.String())
 	}
 
-	var thing store.Thing
-	err := json.NewDecoder(w.Body).Decode(&thing)
-
-	_, err = store.New(testPool).GetThing(context.Background(), thing.ID)
-	if err != nil {
-		t.Errorf("error querying db: %v", err)
+	var created store.User
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("error decoding response: %v", err)
+	}
+	if _, err := store.New(testPool).GetUser(context.Background(), created.ID); err != nil {
+		t.Errorf("created user not found in db: %v", err)
 	}
 }
 
-func TestUpdateThing404(t *testing.T) {
+func TestUpdateUser404(t *testing.T) {
 	truncate(t)
-
-	expected := http.StatusNotFound
-
 	srv := newTestServer(t)
-	payload := strings.NewReader(`{"name": "apple", "description": "juice"}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/things/666", payload)
+
+	body := strings.NewReader(`{"username":"updated","is_admin":false}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/666", body)
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	status := w.Result().StatusCode
-
-	if status != expected {
-		t.Errorf("expected %d; got %d", expected, status)
-	}
-}
-
-func TestUpdateThing(t *testing.T) {
-	truncate(t)
-
-	thing, err := store.New(testPool).CreateThing(context.Background(), store.CreateThingParams{
-		Name:        "sugar",
-		Description: "creek",
-	})
-	if err != nil {
-		t.Fatalf("error creating thing: %v", err)
-	}
-
-	srv := newTestServer(t)
-	payload := strings.NewReader(`{"name": "apple", "description": "juice"}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), payload)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	status := w.Result().StatusCode
-
-	if status != http.StatusOK {
-		t.Errorf("expected %d; got %d", http.StatusOK, status)
-	}
-
-	err = json.NewDecoder(w.Body).Decode(&thing)
-	if err != nil {
-		t.Errorf("error decoding response body: %v", err)
-	}
-
-	if thing.Name != "apple" {
-		t.Errorf("expected name '%s'; got '%s'", "apple", thing.Name)
-	}
-	if thing.Description != "juice" {
-		t.Errorf("expected desc '%s'; got '%s'", "juice", thing.Description)
-	}
-}
-
-func TestDeleteThing(t *testing.T) {
-	truncate(t)
-
-	expected := http.StatusNoContent
-
-	thing, err := store.New(testPool).CreateThing(context.Background(), store.CreateThingParams{
-		Name: "bye",
-	})
-	if err != nil {
-		t.Fatalf("error creating thing: %v", err)
-	}
-
-	srv := newTestServer(t)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	status := w.Result().StatusCode
-
-	if status != expected {
-		t.Errorf("expected %d; got %d", expected, status)
-	}
-
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/things/"+strconv.FormatInt(thing.ID, 10), nil)
 	srv.ServeHTTP(w, req)
 
 	if w.Result().StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404; got %d", w.Result().StatusCode)
+	}
+}
+
+func TestUpdateUser(t *testing.T) {
+	truncate(t)
+	user := createTestUser(t, "original", false)
+
+	srv := newTestServer(t)
+	body := strings.NewReader(`{"username":"updated","is_admin":true}`)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/users/%d", user.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200; got %d", w.Result().StatusCode)
+	}
+
+	if err := json.NewDecoder(w.Body).Decode(&user); err != nil {
+		t.Fatalf("error decoding response: %v", err)
+	}
+	if user.Username != "updated" {
+		t.Errorf("expected username 'updated'; got '%s'", user.Username)
+	}
+	if !user.IsAdmin {
+		t.Errorf("expected is_admin true; got false")
+	}
+}
+
+func TestDeleteUser(t *testing.T) {
+	truncate(t)
+	user := createTestUser(t, "todelete", false)
+
+	srv := newTestServer(t)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", user.ID), nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Result().StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204; got %d", w.Result().StatusCode)
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/users/%d", user.ID), nil)
+	srv.ServeHTTP(w, req)
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 after delete; got %d", w.Result().StatusCode)
 	}
 }
